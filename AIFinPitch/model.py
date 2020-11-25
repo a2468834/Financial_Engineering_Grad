@@ -19,6 +19,7 @@ import pandas
 import pickle
 import random
 import re
+from   sklearn.preprocessing import LabelEncoder
 import time
 import torch
 import torch.nn
@@ -138,11 +139,6 @@ def compColDescription():
             pass
 
 
-def saveToTXT(pandas_df, file_path):
-    pandas_df.to_csv(file_path, header=None, index=None, sep=' ', mode='w')
-    #numpy.savetxt("out.csv", ndarray, delimiter=",")
-
-
 # Caution! High Memory Consumption!
 # Please be careful of the shape to 'data_X' and 'data_Y', both object can be Dataframe or numpy-ndarray.
 # data_X.shape = (n_samples, n_features)
@@ -191,6 +187,10 @@ def saveDataFrameToPK():
     for key in drop.col_dict.keys():
         train['X'] = train['X'].drop(drop.col_dict[key], axis=1, errors='ignore')
     
+    # 'upload_index' is only important to X_test and Y_test, useless to 'X_train' and 'Y_train'
+    train['X'] = train['X'].drop('upload_index', axis=1, errors='ignore')
+    train['Y'] = train['Y'].drop('upload_index', axis=1, errors='ignore')
+    
     # Fill nan value with mean of that columns
     train['X'] = train['X'].fillna(train['X'].mean())
     
@@ -238,11 +238,45 @@ if __name__ == "__main__":
     # Read .pk file
     # 'train' is a dict {'X': X_train.csv DataFrame after dropping cols and rows, 'Y': Y_train.csv DF after...}
     with open('./Training/train.pk', 'rb') as f:
-        train = pickle.load(f)
+        train = pickle.load(f)    
     
+    # Oversample dataset N : 1834130, Y : 298637
+    combined_df = pandas.concat([train['X'], train['Y']], axis=1)
+    largest_class_num =  combined_df['loan_status'].value_counts().max()
+    
+    to_df_list = [combined_df]
+    for _, group in combined_df.groupby('loan_status'):
+        surplus_num = largest_class_num - len(group)
+        to_df_list.append(group.sample(surplus_num, replace=True)) # Sample with replacement
+    combined_df = pandas.concat(to_df_list)
+    
+    print(combined_df['loan_status'].value_counts())
+    exit()
+    
+    # ??????
+    #train['X'] = combined_df[]
+    #train['Y'] = combined_df['loan_status']
+    exit()
+    
+    # Encode label 'Y' into 1 and 'N' into 0
+    sklearn_LE = LabelEncoder()
+    sklearn_LE.fit(['N', 'Y'])
+    train['Y']['loan_status'] = sklearn_LE.transform(train['Y']['loan_status'])
+    
+    # Shuffle dataset
+    rand_int = int(time.time())
+    train['X'] = train['X'].sample(frac=1, random_state=0).reset_index(drop=True)
+    train['Y'] = train['Y'].sample(frac=1, random_state=0).reset_index(drop=True)
+    
+    # Split whole training dataset into training part and validation part
     train_part, valid_part = splitDataset(train)
     
-    train_part['Y'] = torch.tensor(train_part['Y']['loan_status'].values.astype(numpy.float64))
+    # Prepare PyTorch DataLoader
+    train_tensor_Y = torch.Tensor(train_part['Y']['loan_status'].to_numpy())
+    print(train_tensor_Y[0:5])
+    exit()
+    
+    
     train = torch.tensor(train.drop('Target', axis = 1).values.astype(np.float32)) 
     train_tensor = torch.utils.data.TensorDataset(train, train_target) 
     train_loader = torch.utils.data.DataLoader(dataset = train_tensor, batch_size = batch_size, shuffle = True)
