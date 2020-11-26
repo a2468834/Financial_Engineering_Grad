@@ -9,20 +9,18 @@
 #   Environment: 
 #      Software: Python 3.8.5 on 64-bit Windows 10 Pro (2004)
 #      Hardware: Intel i7-10510U, 16GB DDR4 non-ECC ram, and no discrete GPU
-from   imblearn.over_sampling import RandomOverSampler
 import itertools
 import math
-import matplotlib.pyplot as pyplot
 from   multiprocessing import Pool
 import numpy
 import pandas
 import pickle
 import random
-import re
 from   sklearn.preprocessing import LabelEncoder
 import time
 import torch
 import torch.nn
+import torch.nn.functional
 from   torch import optim
 
 
@@ -32,43 +30,10 @@ class CONST:
     row_pixel  = lambda : 26
     col_pixel  = lambda : 26
     tv_ratio   = lambda : 0.8 # training validation ratio
-    batch_size = lambda : 256
+    batch_size = lambda : 32768
     id_col     = lambda : ['id', 'member_id']
-    # columns with imbalance values
-    imb_col    = lambda : ['collection_recovery_fee', 'collections_12_mths_ex_med', 'delinq_2yrs', 
-                           'delinq_amnt', 'dti', 'hardship_dpd', 'hardship_last_payment_amount', 
-                           'max_bal_bc', 'mo_sin_rcnt_tl', 'mort_acc', 'mths_since_rcnt_il', 
-                           'mths_since_recent_bc', 'num_accts_ever_120_pd', 'num_tl_30dpd', 
-                           'num_tl_90g_dpd_24m', 'num_tl_120dpd_2m', 'open_il_12m', 'open_il_24m', 
-                           'orig_projected_additional_accrued_interest', 'policy_code', 'pub_rec', 
-                           'pub_rec_bankruptcies', 'recoveries', 'revol_bal', 'revol_bal_joint', 
-                           'sec_app_chargeoff_within_12_mths', 'sec_app_collections_12_mths_ex_med', 
-                           'tax_liens', 'tot_coll_amt', 'tot_cur_bal', 'tot_hi_cred_lim', 
-                           'total_bal_ex_mort', 'total_bal_il', 'total_bc_limit', 'total_cu_tl', 
-                           'total_il_high_credit_limit', 'total_rec_late_fee', 'total_rev_hi_lim', 
-                           'acc_now_delinq', 'annual_inc', 'annual_inc_joint', 'avg_cur_bal', 
-                           'chargeoff_within_12_mths']
-    # columns with nan rows more than 10%
-    nan_col    = lambda : ['mths_since_last_delinq', 'mths_since_last_record', 
-                           'mths_since_last_major_derog', 'annual_inc_joint', 'dti_joint', 
-                           'open_acc_6m', 'open_act_il', 'open_il_12m', 'open_il_24m', 
-                           'mths_since_rcnt_il', 'total_bal_il', 'il_util', 'open_rv_12m', 
-                           'open_rv_24m', 'max_bal_bc', 'all_util', 'inq_fi', 'total_cu_tl', 
-                           'inq_last_12m', 'mths_since_recent_bc_dlq', 'mths_since_recent_inq', 
-                           'mths_since_recent_revol_delinq', 'revol_bal_joint', 
-                           'sec_app_fico_range_low', 'sec_app_fico_range_high', 
-                           'sec_app_inq_last_6mths', 'sec_app_mort_acc', 'sec_app_open_acc', 
-                           'sec_app_revol_util', 'sec_app_open_act_il', 'sec_app_num_rev_accts', 
-                           'sec_app_chargeoff_within_12_mths', 'sec_app_collections_12_mths_ex_med', 
-                           'sec_app_mths_since_last_major_derog', 'deferral_term', 'hardship_amount', 
-                           'hardship_dpd', 'orig_projected_additional_accrued_interest', 
-                           'hardship_payoff_balance_amount', 'hardship_last_payment_amount', 
-                           'settlement_amount', 'settlement_percentage', 'settlement_term']
-
-
-class FUNC:
-    # Lambda functions
-    tokenize = lambda text : re.findall(r'\w+', text.lower())
+    epoch_num  = lambda : 1000
+    lr_rate    = lambda : 0.25
 
 
 class DROP:
@@ -79,43 +44,39 @@ class DROP:
 class FCModel(torch.nn.Module):
     def __init__(self, input_dim):
         super(FCModel, self).__init__()
-        self.input = torch.nn.Sequential(
-                            torch.nn.Linear(in_features=input_dim, out_features=100),
+        self.fc1 = torch.nn.Sequential(
+                            torch.nn.Linear(in_features=input_dim, out_features=10000),
                             torch.nn.ReLU()
                      )
-        self.hidden1 = torch.nn.Sequential(
-                           torch.nn.Linear(in_features=100, out_features=100),
+        self.fc2 = torch.nn.Sequential(
+                           torch.nn.Linear(in_features=10000, out_features=100),
                            torch.nn.ReLU()
                        )
-        self.hidden2 = torch.nn.Sequential(
-                           torch.nn.Linear(in_features=100, out_features=100),
+        self.fc3 = torch.nn.Sequential(
+                           torch.nn.Linear(in_features=100, out_features=10),
                            torch.nn.ReLU()
                        )
-        self.hidden3 = torch.nn.Sequential(
-                           torch.nn.Linear(in_features=100, out_features=100),
+        self.fc4 = torch.nn.Sequential(
+                           torch.nn.Linear(in_features=100, out_features=10),
                            torch.nn.ReLU()
                        )
-        self.hidden4 = torch.nn.Sequential(
-                           torch.nn.Linear(in_features=100, out_features=100),
+        self.fc5 = torch.nn.Sequential(
+                           torch.nn.Linear(in_features=50, out_features=25),
                            torch.nn.ReLU()
                        )
-        self.hidden5 = torch.nn.Sequential(
-                           torch.nn.Linear(in_features=100, out_features=100),
-                           torch.nn.ReLU()
+        self.fc6 = torch.nn.Sequential(
+                           torch.nn.Linear(in_features=10, out_features=2),
+                           torch.nn.LogSoftmax(dim=1)
                        )
-        self.output = torch.nn.Sequential(
-                          torch.nn.Linear(in_features=100, out_features=1),
-                          torch.nn.Sigmoid()
-                      )
         
     def forward(self, x):
-        x = self.input(x)
-        x = self.hidden1(x)
-        x = self.hidden2(x)
-        x = self.hidden3(x)
-        x = self.hidden4(x)
-        x = self.hidden5(x)
-        x = self.output(x)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
+        #x = self.fc4(x)
+        #x = self.fc5(x)
+        x = self.fc6(x)
+        x = x[:, 0]
         return x
 
 
@@ -137,18 +98,6 @@ def compColDescription():
             print(i)
         else:
             pass
-
-
-# Caution! High Memory Consumption!
-# Please be careful of the shape to 'data_X' and 'data_Y', both object can be Dataframe or numpy-ndarray.
-# data_X.shape = (n_samples, n_features)
-# data_Y.shape = (n_samples,)
-# E.G., train_OS['X'], train_OS['Y'] = overSampling(train['X'], train['Y'].drop(['index'], axis=1))
-def overSamplingToPK(data_X, data_Y):
-    ros = RandomOverSampler(random_state=0) # Use naive oversampling
-    
-    with open('./Training/train_over_sample.pk', 'wb') as f:
-        pickle.dump(ros.fit_resample(data_X, data_Y), f)
 
 
 def saveDataFrameToPK():
@@ -226,6 +175,19 @@ def splitDataset(total_dataset):
     return train_part, valid_part
 
 
+def have_CUDA():
+    if torch.cuda.is_available():
+        return 'cuda'
+    else:
+        return 'cpu'
+
+
+def lossFunc(y_predict, y_truth):
+    BCE_loss = torch.nn.functional.binary_cross_entropy(x_recon, x)
+    
+    return BCE_loss
+
+
 # Main function
 if __name__ == "__main__":
     # Display pandas DataFrame without truncation
@@ -238,9 +200,9 @@ if __name__ == "__main__":
     # Read .pk file
     # 'train' is a dict {'X': X_train.csv DataFrame after dropping cols and rows, 'Y': Y_train.csv DF after...}
     with open('./Training/train.pk', 'rb') as f:
-        train = pickle.load(f)    
-    
-    # Oversample dataset N : 1834130, Y : 298637
+        train = pickle.load(f)
+        
+    # Oversample dataset 'N' : 1834130, 'Y' : 298637
     combined_df = pandas.concat([train['X'], train['Y']], axis=1)
     largest_class_num =  combined_df['loan_status'].value_counts().max()
     
@@ -248,15 +210,18 @@ if __name__ == "__main__":
     for _, group in combined_df.groupby('loan_status'):
         surplus_num = largest_class_num - len(group)
         to_df_list.append(group.sample(surplus_num, replace=True)) # Sample with replacement
-    combined_df = pandas.concat(to_df_list)
+    combined_df = pandas.concat(to_df_list).reset_index(drop=True) 
     
-    print(combined_df['loan_status'].value_counts())
-    exit()
+    # Update training dataset with oversampling version
+    X_part_cols = [col_name for col_name in combined_df.columns if col_name not in ['loan_status']]
+    Y_part_cols = ['loan_status']
+    train['X'] = combined_df[X_part_cols].copy() # Make a true copy, not a passing-reference
+    train['Y'] = combined_df[Y_part_cols].copy() # Make a true copy, not a passing-reference
+    del combined_df # Release memory space used by DataFrame
     
-    # ??????
-    #train['X'] = combined_df[]
-    #train['Y'] = combined_df['loan_status']
-    exit()
+    # Feature normalization for X_part data
+    for col_name in train['X'].columns:
+        train['X'][col_name] = train['X'][col_name] - train['X'][col_name].mean()
     
     # Encode label 'Y' into 1 and 'N' into 0
     sklearn_LE = LabelEncoder()
@@ -269,39 +234,48 @@ if __name__ == "__main__":
     train['Y'] = train['Y'].sample(frac=1, random_state=0).reset_index(drop=True)
     
     # Split whole training dataset into training part and validation part
-    train_part, valid_part = splitDataset(train)
+    train_train_part, train_valid_part = splitDataset(train)
     
     # Prepare PyTorch DataLoader
-    train_tensor_Y = torch.Tensor(train_part['Y']['loan_status'].to_numpy())
-    print(train_tensor_Y[0:5])
-    exit()
+    train_train_tensor_X = torch.Tensor(train_train_part['X'].to_numpy())
+    train_train_tensor_Y = torch.Tensor(train_train_part['Y'].to_numpy())
     
+    torch_dataset = torch.utils.data.TensorDataset(train_train_tensor_X, train_train_tensor_Y)
+    torch_loader  = torch.utils.data.DataLoader(torch_dataset, batch_size=CONST.batch_size(), num_workers=0)
     
-    train = torch.tensor(train.drop('Target', axis = 1).values.astype(np.float32)) 
-    train_tensor = torch.utils.data.TensorDataset(train, train_target) 
-    train_loader = torch.utils.data.DataLoader(dataset = train_tensor, batch_size = batch_size, shuffle = True)
+    # Prepare some initial steps
+    hw_device = have_CUDA()
+    fc_model  = FCModel(input_dim=train_train_tensor_X.shape[1])
+    optimizer = torch.optim.Adam(fc_model.parameters(), lr=CONST.lr_rate())
+    fc_model.cuda()  # or fc_model.to(hw_device)
+    fc_model.train() # Enable self.training to True
     
-    
-    model = FCModel(input_dim=len(train['X'].columns))
-    
-    
-    
-    #numpy.savetxt('out.txt', train['X']['inq_last_6mths'].values)
-    
-    
+    for epoch in range(CONST.epoch_num()):
+        epoch_start = time.time()
+        cur_loss = 0.0
+        for data, label in torch_loader:
+            data, label = data.cuda(), label.cuda() # Map data into HW device
+            predict = fc_model(data)
+            
+            # Calculate loss value
+            loss_func = torch.nn.MSELoss()
+            temp_loss = loss_func(predict, label.view(-1))
+            
+            # Backward propagation
+            optimizer.zero_grad() # Set all the gradients to zero before backward propragation
+            temp_loss.backward()
+            
+            # Performs a single optimization step.
+            optimizer.step()
+            cur_loss += temp_loss.item() * data.size(0)
+              
+        cur_loss = cur_loss / len(torch_loader)
+        print('Epoch: {}\tTraining loss: {:.4f}\tEpoch time: {:.2f}'.format(epoch+1, cur_loss, time.time()-epoch_start))
     '''
     for i in train['X'].columns:
         pyplot.hist(train['X'][col_name])
         pyplot.gcf().savefig('./img/'+str(col_name)+'.png')
         pyplot.clf() # Clear the current figure and axes
-    '''
-    #pool.close()
-    '''
-    with open('./Training/train_over_sample.pk', 'rb') as f:
-        train_OS = pickle.load(f)
-    
-    with open('./Testing/test.pk', 'rb') as f:
-        test = pickle.load(f) # test = {'X': X_test.csv DataFrame, 'Y': Y_test.csv DataFrame}
     '''
 
 
