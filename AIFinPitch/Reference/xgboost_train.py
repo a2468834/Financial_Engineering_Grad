@@ -32,7 +32,7 @@ import zlib
 ########## Classes ##########
 class CONST:
     # Define some constants
-    vt_ratio   = lambda : 0.2 # validation.size / training.size ratio, i.e., 10-fold cross-validation
+    vt_ratio   = lambda : 0.3 # validation.size / training.size ratio, i.e., 10-fold cross-validation
     batch_size = lambda : 8192
     epoch_num  = lambda : 100
     lr_rate    = lambda : 0.5
@@ -45,6 +45,35 @@ def xgb_f1_score(predict, target, threshold=0.5):
     return 'f1', f1_score(target, predict_bin)
 
 
+def readNPY():
+    train, test = {}, {}
+    train['X'] = numpy.load('./PKs/X_train.npy')
+    train['Y'] = numpy.load('./PKs/Y_train.npy')
+    test['X'] = numpy.load('./PKs/X_test.npy')
+    test['Y'] = numpy.load('./PKs/Y_test.npy')
+    
+    mean = numpy.mean(train['X'][:,-109:],axis=0)#對直線取mean
+    max_ = numpy.max(train['X'][:,-109:],axis=0)
+    
+    train['X'][:,-109:] /= max_
+    test['X'][:,-109:] /= max_
+    
+    train['X'] = train['X'].astype("float32")
+
+    Nindex = numpy.where(train['Y']==0)
+    Yindex = numpy.where(train['Y']==1)
+    Nindex = list(Nindex[0])
+    Yindex = list(Yindex[0])
+    
+    sample_index = random.sample(Nindex,298637)
+    sample_index.extend(Yindex)
+    random.shuffle(sample_index)
+
+    train['X'] = train['X'][sample_index,:]
+    train['Y'] = train['Y'][sample_index]
+    return train, test
+
+
 ########## Functions ##########
 if __name__ == "__main__":
     # Display pandas DataFrame and numpy ndarray without truncation
@@ -52,7 +81,7 @@ if __name__ == "__main__":
     pandas.set_option('display.max_rows', None)
     numpy.set_printoptions(threshold=sys.maxsize)
     
-    
+    '''
     # Read .pk files
     # 'train' is a dict {'X': train['X'].csv DataFrame after dropping cols and rows, 'Y': Y_train.csv DF after...}
     # 'test' is a dict {'X': X_test.csv DataFrame} (do not have 'Y')
@@ -63,12 +92,15 @@ if __name__ == "__main__":
     except:
         print("Please run 'save_pk.py' first (to generate train.pk and test.pk)")
         exit()
+    '''
     
+    # Read not-by-me .npy files
+    train, test = readNPY()
     
     # Split whole training dataset into training part and validation part
     train_train, train_valid = {}, {}
     train_train['X'], train_valid['X'], train_train['Y'], train_valid['Y'] = train_test_split(train['X'], train['Y'], test_size=CONST.vt_ratio())
-        
+    
     # Convert ndarray to DMatrix
     train_DM  = xgboost.DMatrix(train_train['X'], label=train_train['Y'])
     valid_DM  = xgboost.DMatrix(train_valid['X'], label=train_valid['Y'])
@@ -89,6 +121,7 @@ if __name__ == "__main__":
                           'tree_method':      'gpu_hist',
                           'max_depth':        25,
                           'eta':              0.3,
+                          'sampling_method':  ,
                           'gamma':            i['gamma'],
                           'min_child_weight': i['m_child_weight'],
                           'lambda':           i['lambda'],
